@@ -50,9 +50,9 @@ func (e *Engine) Start(ctx context.Context) {
 	logger := zerolog.Ctx(ctx)
 
 	// start the modules
-	for _, m := range e.modules {
+	for i := range e.modules {
 		wg.Go(func() {
-			exec(ctx, &m)
+			exec(ctx, &e.modules[i])
 		})
 	}
 
