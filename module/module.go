@@ -5,9 +5,9 @@ import (
 	"context"
 	hash "crypto/sha1"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,20 +29,28 @@ type Module struct {
 	hash string
 }
 
-func wat2Wasm(wat string) ([]byte, error) {
-	uuid, _ := uuid.NewUUID()
-	filePath := filepath.Join(os.TempDir(), uuid.String())
-
-	// run compilation and write to tmp file
-	cmd := exec.Command("wat2wasm", "-o", filePath, "-")
-	cmd.Stdin = bytes.NewBufferString(wat)
-	err := cmd.Run()
-
+func wat2Wasm(ctx context.Context, wat string) ([]byte, error) {
+	tmpFile, err := os.CreateTemp("", "wat2wasm-*.wasm")
 	if err != nil {
 		return nil, errors.Cause(errors.WithStack(err))
 	}
+	defer os.Remove(tmpFile.Name())
 
-	wasm, err := os.ReadFile(filePath)
+	// Close before wat2wasm writes to it by path
+	if err := tmpFile.Close(); err != nil {
+		return nil, errors.Cause(errors.WithStack(err))
+	}
+
+	// run compilation and write to tmp file
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "wat2wasm", "-o", tmpFile.Name(), "-")
+	cmd.Stdin = bytes.NewBufferString(wat)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, errors.Cause(errors.WithStack(fmt.Errorf("wat2wasm: %w: %s", err, stderr.String())))
+	}
+
+	wasm, err := os.ReadFile(tmpFile.Name())
 	if err != nil {
 		return nil, errors.Cause(errors.WithStack(err))
 	}
@@ -116,7 +124,7 @@ func (m *Module) Compile(ctx context.Context) error {
 	defer cancel()
 
 	// compile wat format to wasm
-	wasm, err := wat2Wasm(m.Source)
+	wasm, err := wat2Wasm(ctx, m.Source)
 	err = errors.Cause(errors.WithStack(err))
 	if err != nil {
 		return errors.Cause(errors.WithStack(err))
