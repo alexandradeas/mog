@@ -1,13 +1,7 @@
 package module
 
 import (
-	"bytes"
 	"context"
-	hash "crypto/sha1"
-	"encoding/base64"
-	"fmt"
-	"os"
-	"os/exec"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,37 +18,11 @@ type Module struct {
 	wat       string
 	wasm      []byte
 
+	// the result from the run of this module, initially nil
+	result []uint64
+
 	// The hash of the source used to compile the wasm
 	hash string
-}
-
-func wat2Wasm(ctx context.Context, wat string) ([]byte, error) {
-	tmpFile, err := os.CreateTemp("", "wat2wasm-*.wasm")
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	// Close before wat2wasm writes to it by path
-	if err := tmpFile.Close(); err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	// run compilation and write to tmp file
-	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "wat2wasm", "-o", tmpFile.Name(), "-")
-	cmd.Stdin = bytes.NewBufferString(wat)
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, errors.WithStack(fmt.Errorf("wat2wasm: %w: %s", err, stderr.String()))
-	}
-
-	wasm, err := os.ReadFile(tmpFile.Name())
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	return wasm, nil
 }
 
 // NewModule will create a new module
@@ -88,13 +56,13 @@ func NewModule(ctx context.Context, source string) (Module, error) {
 	}, err
 }
 
-func (m *Module) Run(ctx context.Context, r wazero.Runtime) error {
+func (m *Module) Run(ctx context.Context, r wazero.Runtime, args ...uint64) ([]uint64, error) {
 	m.status = StatusIdle
 
 	err := m.compile(ctx)
 	if err != nil {
 		m.status = StatusErrored
-		return err
+		return nil, err
 	}
 
 	m.status = StatusRunning
@@ -102,33 +70,37 @@ func (m *Module) Run(ctx context.Context, r wazero.Runtime) error {
 	module, err := r.Instantiate(ctx, m.wasm)
 	if err != nil {
 		m.status = StatusErrored
-		return err
+		return nil, errors.WithStack(err)
 	}
 
 	defer module.Close(ctx)
 
+	f := module.ExportedFunction("_start")
+
+	if f == nil {
+		m.status = StatusErrored
+		return nil, errors.WithStack(errors.New("module does not export a _start function"))
+	}
+
+	res, err := f.Call(ctx, args...)
+	if err != nil {
+		m.status = StatusErrored
+		m.result = nil
+		return nil, errors.WithStack(err)
+	}
+
+	m.result = res
 	m.status = StatusCompleted
 
-	return nil
+	return res, err
+}
+
+func (m *Module) GetResult() []uint64 {
+	return m.result
 }
 
 func (m *Module) GetStatus() Status {
 	return m.status
-}
-
-// calculates a hash for the provided string
-//
-// if an error occurs an empty string is returned, along with an error that includes a stack trace
-func calcHash(in string) (string, error) {
-	hasher := hash.New()
-	_, err := hasher.Write([]byte(in))
-	err = errors.WithStack(err)
-	if err != nil {
-		return "", errors.WithStack(err)
-	}
-
-	return base64.URLEncoding.EncodeToString(hasher.Sum(nil)), nil
-
 }
 
 func (m *Module) compile(ctx context.Context) error {

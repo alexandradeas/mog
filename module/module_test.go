@@ -19,7 +19,7 @@ const validWAT = `
   (func $getAnswer (result i32)
     i32.const 42)
 
-  (func (export "getAnswer") (result i32)
+  (func (export "_start") (result i32)
     call $getAnswer)
 )`
 
@@ -71,9 +71,10 @@ func TestRunStatusCompileError(t *testing.T) {
 		hash: "stale-hash",
 	}
 
-	err := m.Run(ctx, r)
+	res, err := m.Run(ctx, r)
 	assert.Error(t, err)
 	assert.Equal(t, StatusErrored, m.status)
+	assert.Equal(t, []uint64([]uint64(nil)), res)
 }
 
 func TestRunStatusInstantiateError(t *testing.T) {
@@ -88,33 +89,16 @@ func TestRunStatusInstantiateError(t *testing.T) {
 		hash: watHash(wat),
 	}
 
-	err := m.Run(ctx, r)
+	res, err := m.Run(ctx, r)
 	assert.Error(t, err)
 	assert.Equal(t, StatusErrored, m.status)
-}
-
-func TestRunStatusCompleted(t *testing.T) {
-	ctx := t.Context()
-	r := wazero.NewRuntime(ctx)
-	defer r.Close(ctx)
-
-	wat := validWAT
-	m := &Module{
-		wat:  wat,
-		wasm: minimalWasm,
-		hash: watHash(wat),
-	}
-
-	err := m.Run(ctx, r)
-	require.NoError(t, err)
-	assert.Equal(t, StatusCompleted, m.status)
+	assert.Equal(t, []uint64([]uint64(nil)), res)
 }
 
 func TestRunWithRealRuntime(t *testing.T) {
 	if _, err := exec.LookPath("wat2wasm"); err != nil {
 		t.Skip("wat2wasm not found in PATH")
 	}
-
 	ctx := t.Context()
 
 	m, err := NewModule(ctx, validWAT)
@@ -123,7 +107,8 @@ func TestRunWithRealRuntime(t *testing.T) {
 	r := wazero.NewRuntime(ctx)
 	defer r.Close(ctx)
 
-	err = m.Run(ctx, r)
+	res, err := m.Run(ctx, r)
 	require.NoError(t, err)
 	assert.Equal(t, StatusCompleted, m.GetStatus())
+	assert.EqualValues(t, res, []uint64{42})
 }

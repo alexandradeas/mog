@@ -16,8 +16,8 @@ const everything = `
   (func $getAnswer (result i32)
     i32.const 42)
 
-  ;; Export the function as "getAnswer" so it can be called from the host
-  (func (export "getAnswer") (result i32)
+  ;; Export the function as "_start" so it can be called from the host
+  (func (export "_start") (result i32)
     call $getAnswer)
 )`
 
@@ -31,7 +31,7 @@ func main() {
 	mog := engine.Engine{}
 
 	logger.Info().Msg("Creating modules")
-	errors := mog.Initialize(ctx, []string{everything})
+	errors := mog.Initialize(ctx, []string{everything, everything, everything})
 	for _, err := range errors {
 		logger.Err(err).Msg("Failed to initialize module")
 		exitCode = 1
