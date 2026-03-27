@@ -44,18 +44,31 @@ func (e *Engine) Initialize(ctx context.Context, srcs []string) []error {
 
 }
 
-func (e *Engine) Start(ctx context.Context) {
+func (e *Engine) Start(ctx context.Context) []ExecutionResult {
 	var wg sync.WaitGroup
+	var mutex sync.Mutex
 
 	logger := zerolog.Ctx(ctx)
 
+	var results []ExecutionResult
+
 	// start the modules
 	for i := range e.modules {
+		m := &e.modules[i]
 		wg.Go(func() {
-			err := exec(ctx, &e.modules[i])
-			if err != nil {
-				logger.Err(err).Stack().Msg("Module failed")
+			result := ExecutionResult{ModuleID: m.ID}
+
+			result.Result, result.Error = exec(ctx, m)
+
+			if result.Error != nil {
+				logger.Err(result.Error).Stack().Msg("Module failed")
 			}
+
+			mutex.Lock()
+			results = append(results, result)
+			mutex.Unlock()
+
+			logger.Debug().Object("module", m).Object("result", result).Msg("module exection completed")
 		})
 	}
 
@@ -63,17 +76,16 @@ func (e *Engine) Start(ctx context.Context) {
 
 	wg.Wait()
 	logger.Debug().Msg("All modules have finished executing")
+
+	return results
 }
 
-func exec(ctx context.Context, m *module.Module) error {
+func exec(ctx context.Context, m *module.Module) ([]uint64, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
 	r := wazero.NewRuntime(ctx)
 	defer r.Close(ctx)
 
-	err := m.Run(ctx, r)
-
-	// might be nil
-	return err
+	return m.Run(ctx, r)
 }
