@@ -59,6 +59,8 @@ func NewModule(ctx context.Context, source string) (Module, error) {
 func (m *Module) Run(ctx context.Context, r wazero.Runtime, args ...uint64) ([]uint64, error) {
 	m.status = StatusIdle
 
+	// reset result to nil
+	m.result = nil
 	err := m.compile(ctx)
 	if err != nil {
 		m.status = StatusErrored
@@ -85,7 +87,6 @@ func (m *Module) Run(ctx context.Context, r wazero.Runtime, args ...uint64) ([]u
 	res, err := f.Call(ctx, args...)
 	if err != nil {
 		m.status = StatusErrored
-		m.result = nil
 		return nil, errors.WithStack(err)
 	}
 
